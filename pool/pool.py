@@ -8,6 +8,7 @@ from math import floor
 from typing import Dict, Optional, Set, List, Tuple, Callable
 
 from blspy import AugSchemeMPL, G1Element
+from chia.consensus.block_rewards import calculate_pool_reward
 from chia.pools.pool_wallet_info import PoolState, PoolSingletonState
 from chia.protocols.pool_protocol import (
     PoolErrorCode,
@@ -42,7 +43,7 @@ from chia.pools.pool_puzzles import (
 )
 
 from .difficulty_adjustment import get_new_difficulty
-from .singleton import create_absorb_transaction, get_singleton_state, get_coin_spend
+from .singleton import create_absorb_transaction, get_singleton_state, get_coin_spend, get_farmed_height
 from .store.abstract import AbstractPoolStore
 from .store.sqlite_store import SqlitePoolStore
 from .record import FarmerRecord
@@ -264,6 +265,10 @@ class Pool:
                 ph_to_coins: Dict[bytes32, List[CoinRecord]] = {}
                 not_buried_amounts = 0
                 for cr in coin_records:
+                    if not cr.coinbase:
+                        self.log.info(f"Non coinbase coin: {cr.coin}, ignoring")
+                        continue
+
                     if cr.confirmed_block_index > peak_height - self.confirmation_security_threshold:
                         not_buried_amounts += cr.coin.amount
                         continue
@@ -369,6 +374,10 @@ class Pool:
                 total_amount_claimed = sum([c.coin.amount for c in coin_records])
                 pool_coin_amount = int(total_amount_claimed * self.pool_fee)
                 amount_to_distribute = total_amount_claimed - pool_coin_amount
+
+                if total_amount_claimed < calculate_pool_reward(uint32(1)):  # 1.75 XCH
+                    self.log.info(f"Do not have enough funds to distribute: {total_amount_claimed}, skipping payout")
+                    continue
 
                 self.log.info(f"Total amount claimed: {total_amount_claimed / (10 ** 12)}")
                 self.log.info(f"Pool coin amount (includes blockchain fee) {pool_coin_amount / (10 ** 12)}")
@@ -677,7 +686,7 @@ class Pool:
             self.log.info(f"Updated farmer: {response_dict}")
 
         self.farmer_update_blocked.add(launcher_id)
-        await asyncio.create_task(update_farmer_later())
+        asyncio.create_task(update_farmer_later())
 
         # TODO Fix chia-blockchain's Streamable implementation to support Optional in `from_json_dict`, then use
         # PutFarmerResponse here and in the trace up.
