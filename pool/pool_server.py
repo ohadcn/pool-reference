@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import ssl
 import time
 import traceback
 from typing import Dict, Callable, Optional
@@ -7,8 +9,9 @@ import os
 import yaml
 
 import aiohttp
-from blspy import AugSchemeMPL, G2Element
+import yaml
 from aiohttp import web
+from blspy import AugSchemeMPL, G2Element
 from chia.protocols.pool_protocol import (
     PoolErrorCode,
     GetFarmerResponse,
@@ -30,8 +33,8 @@ from chia.util.ints import uint8, uint64, uint32
 from chia.util.default_root import DEFAULT_ROOT_PATH
 from chia.util.config import load_config
 
-from .record import FarmerRecord
 from .pool import Pool
+from .record import FarmerRecord
 from .store.abstract import AbstractPoolStore
 from .util import error_response, RequestMetadata
 
@@ -50,11 +53,27 @@ def check_authentication_token(launcher_id: bytes32, token: uint64, timeout: uin
     return None
 
 
+def get_ssl_context(config):
+    if config["server"]["server_use_ssl"] is False:
+        return None
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(config["server"]["server_ssl_crt"], config["server"]["server_ssl_key"])
+    return ssl_context
+
+
 class PoolServer:
     def __init__(self, config: Dict, constants: ConsensusConstants, pool_store: Optional[AbstractPoolStore] = None, pool_config = None):
 
+        # We load our configurations from here
+        with open(os.getcwd() + "/config.yaml") as f:
+            pool_config: Dict = yaml.safe_load(f)
+
         self.log = logging.getLogger(__name__)
-        self.pool = Pool(config, constants, pool_store, pool_config)
+        self.pool = Pool(config, pool_config, constants, pool_store)
+
+        self.pool_config = pool_config
+        self.host = pool_config["server"]["server_host"]
+        self.port = int(pool_config["server"]["server_port"])
 
     async def start(self):
         await self.pool.start()
@@ -274,7 +293,6 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
     server = PoolServer(config, constants, pool_store, pool_config)
     await server.start()
 
-    # TODO(pool): support TLS
     app = web.Application()
     app.add_routes(
         [
@@ -289,7 +307,13 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
     )
     runner = aiohttp.web.AppRunner(app, access_log=None)
     await runner.setup()
-    site = aiohttp.web.TCPSite(runner, "0.0.0.0", int(pool_config.get("web_port", 80)))
+    ssl_context = get_ssl_context(server.pool_config)
+    site = aiohttp.web.TCPSite(
+        runner,
+        host=server.host,
+        port=server.port,
+        ssl_context=ssl_context,
+    )
     await site.start()
 
     while True:
