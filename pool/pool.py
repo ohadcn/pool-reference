@@ -60,16 +60,13 @@ class Pool:
         config: Dict,
         constants: ConsensusConstants,
         pool_store: Optional[AbstractPoolStore] = None,
+        pool_config: Dict = None,
         difficulty_function: Callable = get_new_difficulty,
     ):
         self.follow_singleton_tasks: Dict[bytes32, asyncio.Task] = {}
         self.log = logging
         # If you want to log to a file: use filename='example.log', encoding='utf-8'
         self.log.basicConfig(level=logging.INFO)
-
-        # We load our configurations from here
-        with open(os.getcwd() + "/config.yaml") as f:
-            pool_config: Dict = yaml.safe_load(f)
 
         initialize_logging("pool", pool_config["logging"], pathlib.Path(pool_config["logging"]["log_path"]))
 

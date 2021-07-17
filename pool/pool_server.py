@@ -3,6 +3,8 @@ import logging
 import time
 import traceback
 from typing import Dict, Callable, Optional
+import os
+import yaml
 
 import aiohttp
 from blspy import AugSchemeMPL, G2Element
@@ -49,10 +51,10 @@ def check_authentication_token(launcher_id: bytes32, token: uint64, timeout: uin
 
 
 class PoolServer:
-    def __init__(self, config: Dict, constants: ConsensusConstants, pool_store: Optional[AbstractPoolStore] = None):
+    def __init__(self, config: Dict, constants: ConsensusConstants, pool_store: Optional[AbstractPoolStore] = None, pool_config = None):
 
         self.log = logging.getLogger(__name__)
-        self.pool = Pool(config, constants, pool_store)
+        self.pool = Pool(config, constants, pool_store, pool_config)
 
     async def start(self):
         await self.pool.start()
@@ -265,9 +267,11 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
     global server
     global runner
     config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
+    with open(os.getcwd() + "/config.yaml") as f:
+        pool_config: Dict = yaml.safe_load(f)
     overrides = config["network_overrides"]["constants"][config["selected_network"]]
     constants: ConsensusConstants = DEFAULT_CONSTANTS.replace_str_to_bytes(**overrides)
-    server = PoolServer(config, constants, pool_store)
+    server = PoolServer(config, constants, pool_store, pool_config)
     await server.start()
 
     # TODO(pool): support TLS
@@ -285,7 +289,7 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
     )
     runner = aiohttp.web.AppRunner(app, access_log=None)
     await runner.setup()
-    site = aiohttp.web.TCPSite(runner, "0.0.0.0", int(80))
+    site = aiohttp.web.TCPSite(runner, "0.0.0.0", int(pool_config.get("web_port", 80)))
     await site.start()
 
     while True:

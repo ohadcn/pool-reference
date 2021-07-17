@@ -25,6 +25,7 @@ max_additions_per_transaction: 400
 number_of_partials_target: 300
 time_target: 86400
 relative_lock_height: 32
+web_port: 80
 logging:
   log_path: /var/log/chia
   log_filename: pool-server.log
