@@ -56,6 +56,10 @@ class AbstractPoolStore(ABC):
     @abstractmethod
     async def get_farmer_points_and_payout_instructions(self) -> List[Tuple[uint64, bytes]]:
         """Fetch all farmers and their respective payout instructions"""
+    
+    @abstractmethod
+    async def get_farmer_record_for_all_farmers(self) -> Optional[list]:
+        """Fetch all farmers and their respective public records"""
 
     @abstractmethod
     async def clear_farmer_points(self) -> None:

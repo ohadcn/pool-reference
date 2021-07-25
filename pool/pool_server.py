@@ -155,6 +155,43 @@ class PoolServer:
         self.pool.log.info(f"get_farmer response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
         return obj_to_response(response)
 
+    async def get_farmer_public(self, request_obj) -> web.Response:
+        # TODO(pool): add rate limiting
+        launcher_id: bytes32 = hexstr_to_bytes(request_obj.rel_url.query["launcher_id"])
+
+        farmer_record: Optional[FarmerRecord] = await self.pool.store.get_farmer_record(launcher_id)
+        if farmer_record is None:
+            return error_response(
+                PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id.hex()} unknown."
+            )
+
+        response: GetFarmerResponse = GetFarmerResponse(
+            farmer_record.authentication_public_key,
+            None, #farmer_record.payout_instructions,
+            farmer_record.difficulty,
+            farmer_record.points,
+        )
+
+        self.pool.log.info(f"get_farmer_public response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
+        return obj_to_response(response)
+
+    async def get_farmers(self, _) -> web.Response:
+        farmer_records: Optional[list[FarmerRecord]] = await self.pool.store.get_farmer_record_for_all_farmers()
+        if farmer_records is None:
+            return error_response(
+                PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id.hex()} unknown."
+            )
+
+        response: list[GetFarmerResponse] = [GetFarmerResponse(
+            farmer_record.authentication_public_key,
+            None, #farmer_record.payout_instructions,
+            farmer_record.difficulty,
+            farmer_record.points,
+        ) for farmer_record in farmer_records]
+
+        self.pool.log.info(f"get_farmers response")
+        return obj_to_response(response)
+
     def post_metadata_from_request(self, request_obj):
         return RequestMetadata(
             url=str(request_obj.url),
@@ -299,6 +336,8 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
             web.get("/", server.wrap_http_handler(server.index)),
             web.get("/pool_info", server.wrap_http_handler(server.get_pool_info)),
             web.get("/farmer", server.wrap_http_handler(server.get_farmer)),
+            web.get("/farmers", server.wrap_http_handler(server.get_farmers)),
+            web.get("/farmer_public", server.wrap_http_handler(server.get_farmer_public)),
             web.post("/farmer", server.wrap_http_handler(server.post_farmer)),
             web.put("/farmer", server.wrap_http_handler(server.put_farmer)),
             web.post("/partial", server.wrap_http_handler(server.post_partial)),

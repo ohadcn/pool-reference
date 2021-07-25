@@ -101,6 +101,17 @@ class SqlitePoolStore(AbstractPoolStore):
             return None
         return self._row_to_farmer_record(row)
 
+    async def get_farmer_record_for_all_farmers(self) -> Optional[list]:
+        # TODO(pool): use cache
+        cursor = await self.connection.execute(
+            "SELECT * from farmer",
+            (),
+        )
+        rows = await cursor.fetchall()
+        if rows is None:
+            return None
+        return [self._row_to_farmer_record(row) for row in rows]
+
     async def update_difficulty(self, launcher_id: bytes32, difficulty: uint64):
         cursor = await self.connection.execute(
             f"UPDATE farmer SET difficulty=? WHERE launcher_id=?", (difficulty, launcher_id.hex())
