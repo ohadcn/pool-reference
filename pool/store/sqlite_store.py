@@ -203,3 +203,12 @@ class SqlitePoolStore(AbstractPoolStore):
         rows = await cursor.fetchall()
         ret: List[Tuple[uint64, uint64]] = [(uint64(timestamp), uint64(difficulty)) for timestamp, difficulty in rows]
         return ret
+
+    async def get_recent_partials_all_farmers(self, count: int) -> List[Tuple[uint64, uint64]]:
+        cursor = await self.connection.execute(
+            "SELECT timestamp, difficulty, launcher_id from partial ORDER BY timestamp DESC LIMIT ?",
+            (count),
+        )
+        rows = await cursor.fetchall()
+        ret: List[Tuple[uint64, uint64]] = [(uint64(timestamp), uint64(difficulty), launcher_id) for timestamp, difficulty, launcher_id in rows]
+        return ret

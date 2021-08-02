@@ -1,6 +1,9 @@
 config.yaml
+config.*.yaml
 .idea
 venv
 __pycache__
 *.sqlite
 .vscode
+*.sqlite-*
+logs

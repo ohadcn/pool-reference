@@ -170,14 +170,16 @@ class PoolServer:
                 PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id.hex()} unknown."
             )
 
-        response: GetFarmerResponse = GetFarmerResponse(
-            farmer_record.authentication_public_key,
-            None, #farmer_record.payout_instructions,
-            farmer_record.difficulty,
-            farmer_record.points,
-        )
+        response: dict = {
+            "authentication_public_key": farmer_record.authentication_public_key,
+            "payout_instructions": None, #farmer_record.,
+            "difficulty": farmer_record.difficulty,
+            "points": farmer_record.points,
+        }
+        recent_partials = await self.pool.store.get_recent_partials(launcher_id, 20)
+        response["recent_partials"] = recent_partials
 
-        self.pool.log.info(f"get_farmer_public response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
+        # self.pool.log.info(f"get_farmer_public response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
         return obj_to_response(response)
 
     async def get_netspace(self, request_obj) -> web.Response:
@@ -326,6 +328,11 @@ class PoolServer:
 
         return obj_to_response(response)
 
+    async def get_partials(self):
+        recent_partials = await self.pool.store.get_recent_partials_all_farmers(100)
+
+        return obj_to_response(recent_partials)
+
 
 server: Optional[PoolServer] = None
 runner: Optional[aiohttp.web.BaseRunner] = None
@@ -355,6 +362,7 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
             web.put("/farmer", server.wrap_http_handler(server.put_farmer)),
             web.post("/partial", server.wrap_http_handler(server.post_partial)),
             web.get("/login", server.wrap_http_handler(server.get_login)),
+            web.get("/partials", server.wrap_http_handler(server.get_partials)),
         ]
     )
     runner = aiohttp.web.AppRunner(app, access_log=None)
