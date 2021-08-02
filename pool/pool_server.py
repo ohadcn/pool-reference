@@ -195,12 +195,11 @@ class PoolServer:
                 PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id.hex()} unknown."
             )
 
-        response: list[GetFarmerResponse] = [GetFarmerResponse(
-            farmer_record.authentication_public_key,
-            None, #farmer_record.payout_instructions,
-            farmer_record.difficulty,
-            farmer_record.points,
-        ) for farmer_record in farmer_records]
+        response: list[dict] = [{
+            "difficulty": farmer_record.difficulty,
+            "points": farmer_record.points,
+            "launcher_id": farmer_record.launcher_id
+         } for farmer_record in farmer_records]
 
         self.pool.log.info(f"get_farmers response")
         return obj_to_response(response)
