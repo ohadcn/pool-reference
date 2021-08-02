@@ -331,7 +331,7 @@ class PoolServer:
     async def get_partials(self, request_obj):
         recent_partials = await self.pool.store.get_recent_partials_all_farmers(100)
 
-        return obj_to_response(recent_partials)
+        return obj_to_response({"partials": recent_partials})
 
 
 server: Optional[PoolServer] = None
