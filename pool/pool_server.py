@@ -10,6 +10,7 @@ import yaml
 
 import aiohttp
 import yaml
+from blspy import AugSchemeMPL, G2Element
 from aiohttp import web
 from blspy import AugSchemeMPL, G2Element
 from chia.protocols.pool_protocol import (
@@ -199,7 +200,8 @@ class PoolServer:
             return authentication_token_error
 
         # Process the request
-        put_farmer_response = await self.pool.update_farmer(put_farmer_request)
+        put_farmer_response = await self.pool.update_farmer(put_farmer_request,
+                                                            self.post_metadata_from_request(request_obj))
 
         self.pool.log.info(
             f"put_farmer response {put_farmer_response}, "
@@ -228,7 +230,7 @@ class PoolServer:
                 f"Farmer with launcher_id {partial.payload.launcher_id.hex()} not known.",
             )
 
-        post_partial_response = await self.pool.process_partial(partial, farmer_record, start_time)
+        post_partial_response = await self.pool.process_partial(partial, farmer_record, uint64(int(start_time)))
 
         self.pool.log.info(
             f"post_partial response {post_partial_response}, time: {time.time() - start_time} "
@@ -279,7 +281,7 @@ class PoolServer:
 
 
 server: Optional[PoolServer] = None
-runner = None
+runner: Optional[aiohttp.web.BaseRunner] = None
 
 
 async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
