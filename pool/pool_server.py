@@ -69,10 +69,6 @@ class PoolServer:
         with open(os.getcwd() + "/config.yaml") as f:
             pool_config: Dict = yaml.safe_load(f)
 
-        # We load our configurations from here
-        with open(os.getcwd() + "/config.yaml") as f:
-            pool_config: Dict = yaml.safe_load(f)
-
         self.log = logging.getLogger(__name__)
         self.pool = Pool(config, pool_config, constants, pool_store)
 
