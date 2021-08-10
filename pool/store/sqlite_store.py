@@ -120,8 +120,8 @@ class SqlitePoolStore(AbstractPoolStore):
             "difficulty": row[0],
             "points": row[1],
             "launcher_id": row[2],
-            "partials24": row[4],
-            "points24": row[5]
+            "partials24": row[3],
+            "points24": row[4]
         } for row in rows]
 
     async def update_difficulty(self, launcher_id: bytes32, difficulty: uint64):
