@@ -167,7 +167,7 @@ class PoolServer:
             )
 
         response: dict = {
-            "authentication_public_key": farmer_record.authentication_public_key,
+            "launcher_id": launcher_id,
             "payout_instructions": None, #farmer_record.,
             "difficulty": farmer_record.difficulty,
             "points": farmer_record.points,
