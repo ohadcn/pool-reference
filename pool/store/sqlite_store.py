@@ -104,13 +104,25 @@ class SqlitePoolStore(AbstractPoolStore):
     async def get_farmer_record_for_all_farmers(self) -> Optional[list]:
         # TODO(pool): use cache
         cursor = await self.connection.execute(
-            "SELECT * from farmer",
+            '''SELECT farmer.difficulty,points,launcher_id,
+                COUNT(timestamp) AS partials,
+                COALESCE(SUM(partial.difficulty), 0) AS points24
+                FROM farmer
+                LEFT OUTER JOIN partial USING(launcher_id)
+                WHERE strftime('%s', 'now','-1 day')<timestamp OR timestamp IS NULL
+                GROUP BY launcher_id''',
             (),
         )
         rows = await cursor.fetchall()
         if rows is None:
             return None
-        return [self._row_to_farmer_record(row) for row in rows]
+        return [{
+            "difficulty": row[0],
+            "points": row[1],
+            "launcher_id": row[2],
+            "partials24": row[4],
+            "points24": row[5]
+        } for row in rows]
 
     async def update_difficulty(self, launcher_id: bytes32, difficulty: uint64):
         cursor = await self.connection.execute(

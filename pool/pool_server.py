@@ -191,14 +191,14 @@ class PoolServer:
                 PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id.hex()} unknown."
             )
 
-        response: list[dict] = [{
-            "difficulty": farmer_record.difficulty,
-            "points": farmer_record.points,
-            "launcher_id": farmer_record.launcher_id
-         } for farmer_record in farmer_records]
+        # response: list[dict] = [{
+        #     "difficulty": farmer_record.difficulty,
+        #     "points": farmer_record.points,
+        #     "launcher_id": farmer_record.launcher_id
+        #  } for farmer_record in farmer_records]
 
         self.pool.log.info(f"get_farmers response")
-        return obj_to_response(response)
+        return obj_to_response(farmer_records)
 
     def post_metadata_from_request(self, request_obj):
         return RequestMetadata(
