@@ -123,7 +123,7 @@ class PoolServer:
 
     async def get_transactions(self, _) -> web.Response:
         txs: list[TransactionRecord] = await self.pool.wallet_rpc_client.get_transactions(self.pool.wallet_id)
-        sent = [t for t in txs if t.sent]
+        sent = [t for t in txs]
         resp = []
         for tx in sent:
             for coin in tx.additions:
