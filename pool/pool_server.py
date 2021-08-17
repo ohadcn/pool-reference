@@ -135,6 +135,15 @@ class PoolServer:
                     })
         return obj_to_response(resp)
 
+    async def get_blocks(self, _) -> web.Response:
+        txs: list[TransactionRecord] = await self.pool.wallet_rpc_client.get_transactions(self.pool.wallet_id)
+        sent = [t for t in txs if t.sent]
+        resp = []
+        for tx in sent:
+            for coin in tx.additions:
+                if coin.amount > 0:
+                    resp.append({
+                        "amount": coin.amount/1E12,
                         "to": encode_puzzle_hash(coin.puzzle_hash, "xch")
                     })
         return obj_to_response(resp)
