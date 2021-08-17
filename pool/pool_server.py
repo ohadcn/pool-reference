@@ -33,6 +33,8 @@ from chia.util.json_util import obj_to_response
 from chia.util.ints import uint8, uint64, uint32
 from chia.util.default_root import DEFAULT_ROOT_PATH
 from chia.util.config import load_config
+from chia.wallet.transaction_record import TransactionRecord
+from chia.util.bech32m import encode_puzzle_hash
 
 from .pool import Pool
 from .record import FarmerRecord
@@ -117,6 +119,15 @@ class PoolServer:
             self.pool.authentication_token_timeout,
         )
         return obj_to_response(res)
+
+    async def get_transactions(self, _) -> web.Response:
+        txs: list[TransactionRecord] = await self.pool.wallet_rpc_client.get_transactions(self.pool.wallet_id)
+        sent = [t for t in txs if t.sent]
+        return obj_to_response([{
+                "amount": t.amount/1E12,
+                "to": encode_puzzle_hash(t.to_puzzle_hash, "xch"),
+                "name": t.name
+            } for t in sent])
 
     async def get_farmer(self, request_obj) -> web.Response:
         # TODO(pool): add rate limiting
@@ -358,6 +369,7 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
             web.post("/partial", server.wrap_http_handler(server.post_partial)),
             web.get("/login", server.wrap_http_handler(server.get_login)),
             web.get("/partials", server.wrap_http_handler(server.get_partials)),
+            web.get("/transactions", server.wrap_http_handler(server.get_transactions)),
         ]
     )
     runner = aiohttp.web.AppRunner(app, access_log=None)

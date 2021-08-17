@@ -7,6 +7,7 @@ from chia.pools.pool_wallet_info import PoolState
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_spend import CoinSpend
 from chia.util.ints import uint64
+from chia.util.bech32m import encode_puzzle_hash
 
 from .abstract import AbstractPoolStore
 from ..record import FarmerRecord
@@ -106,7 +107,8 @@ class SqlitePoolStore(AbstractPoolStore):
         cursor = await self.connection.execute(
             '''SELECT farmer.difficulty,points,launcher_id,
                 COUNT(timestamp) AS partials,
-                COALESCE(SUM(partial.difficulty), 0) AS points24
+                COALESCE(SUM(partial.difficulty), 0) AS points24,
+                payout_instructions
                 FROM farmer
                 LEFT OUTER JOIN partial USING(launcher_id)
                 WHERE strftime('%s', 'now','-1 day')<timestamp OR timestamp IS NULL
@@ -121,7 +123,8 @@ class SqlitePoolStore(AbstractPoolStore):
             "points": row[1],
             "launcher_id": row[2],
             "partials24": row[3],
-            "points24": row[4]
+            "points24": row[4],
+            "payout_address": encode_puzzle_hash(bytes.fromhex(row[5]), "xch")
         } for row in rows]
 
     async def update_difficulty(self, launcher_id: bytes32, difficulty: uint64):
