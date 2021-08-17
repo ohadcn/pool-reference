@@ -123,11 +123,20 @@ class PoolServer:
     async def get_transactions(self, _) -> web.Response:
         txs: list[TransactionRecord] = await self.pool.wallet_rpc_client.get_transactions(self.pool.wallet_id)
         sent = [t for t in txs if t.sent]
-        return obj_to_response([{
-                "amount": t.amount/1E12,
-                "to": encode_puzzle_hash(t.to_puzzle_hash, "xch"),
-                "name": t.name
-            } for t in sent])
+        resp = []
+        for tx in sent:
+            for coin in tx.additions:
+                if coin.amount > 0:
+                    resp.append({
+                        "amount": coin.amount/1E12,
+                        "to": encode_puzzle_hash(coin.puzzle_hash, "xch")
+                    })
+        return obj_to_response(resp)
+
+    async def get_transactions_raw(self, _) -> web.Response:
+        txs: list[TransactionRecord] = await self.pool.wallet_rpc_client.get_transactions(self.pool.wallet_id)
+        sent = [t for t in txs if t.sent]
+        return obj_to_response(sent)
 
     async def get_farmer(self, request_obj) -> web.Response:
         # TODO(pool): add rate limiting
@@ -370,6 +379,7 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
             web.get("/login", server.wrap_http_handler(server.get_login)),
             web.get("/partials", server.wrap_http_handler(server.get_partials)),
             web.get("/transactions", server.wrap_http_handler(server.get_transactions)),
+            web.get("/raw_transactions", server.wrap_http_handler(server.get_transactions_raw)),
         ]
     )
     runner = aiohttp.web.AppRunner(app, access_log=None)
