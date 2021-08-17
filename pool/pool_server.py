@@ -7,6 +7,7 @@ import traceback
 from typing import Dict, Callable, Optional
 import os
 import yaml
+from datetime import datetime
 
 import aiohttp
 import yaml
@@ -129,6 +130,11 @@ class PoolServer:
                 if coin.amount > 0:
                     resp.append({
                         "amount": coin.amount/1E12,
+                        "to": encode_puzzle_hash(coin.puzzle_hash, "xch"),
+                        "time": datetime.fromtimestamp(tx.created_at_time).strftime("%Y.%m.%d %H:%M")
+                    })
+        return obj_to_response(resp)
+
                         "to": encode_puzzle_hash(coin.puzzle_hash, "xch")
                     })
         return obj_to_response(resp)
