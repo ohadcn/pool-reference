@@ -108,7 +108,8 @@ class SqlitePoolStore(AbstractPoolStore):
             '''SELECT farmer.difficulty,points,launcher_id,
                 COUNT(timestamp) AS partials,
                 COALESCE(SUM(partial.difficulty), 0) AS points24,
-                payout_instructions
+                payout_instructions,
+                MIN(timestamp) as joinDate
                 FROM farmer
                 LEFT OUTER JOIN partial USING(launcher_id)
                 WHERE strftime('%s', 'now','-1 day')<timestamp OR timestamp IS NULL
@@ -124,7 +125,8 @@ class SqlitePoolStore(AbstractPoolStore):
             "launcher_id": row[2],
             "partials24": row[3],
             "points24": row[4],
-            "payout_address": encode_puzzle_hash(bytes.fromhex(row[5]), "xch")
+            "payout_address": encode_puzzle_hash(bytes.fromhex(row[5]), "xch"),
+            "joinDate": row[6]
         } for row in rows]
 
     async def update_difficulty(self, launcher_id: bytes32, difficulty: uint64):
