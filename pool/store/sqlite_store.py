@@ -106,8 +106,8 @@ class SqlitePoolStore(AbstractPoolStore):
         # TODO(pool): use cache
         cursor = await self.connection.execute(
             '''SELECT farmer.difficulty,points,launcher_id,
-                COUNT(case when strftime('%s', 'now','-1 day')<timestamp then 1 else 0 end) AS partials,
-                COALESCE(SUM(partial.difficulty), 0) AS points24,
+                SUM(case when strftime('%s', 'now','-1 day')<timestamp then 1 else 0 end) AS partials,
+                COALESCE(SUM(case when strftime('%s', 'now','-1 day')<timestamp then partial.difficulty else 0 end), 0) AS points24,
                 payout_instructions,
                 MIN(timestamp) as joinDate
                 FROM farmer
