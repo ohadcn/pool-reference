@@ -132,6 +132,7 @@ class PoolServer:
                         "amount": coin.amount/1E12,
                         "to": encode_puzzle_hash(coin.puzzle_hash, "xch"),
                         "block": tx.confirmed_at_height,
+                        "parent": tx.name,
                         "time": datetime.fromtimestamp(tx.created_at_time).strftime("%Y.%m.%d %H:%M"),
                         "timestamp": tx.created_at_time
                     })
