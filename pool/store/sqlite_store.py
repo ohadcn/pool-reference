@@ -106,13 +106,12 @@ class SqlitePoolStore(AbstractPoolStore):
         # TODO(pool): use cache
         cursor = await self.connection.execute(
             '''SELECT farmer.difficulty,points,launcher_id,
-                COUNT(timestamp) AS partials,
+                COUNT(case when strftime('%s', 'now','-1 day')<timestamp then 1 else 0 end) AS partials,
                 COALESCE(SUM(partial.difficulty), 0) AS points24,
                 payout_instructions,
                 MIN(timestamp) as joinDate
                 FROM farmer
                 LEFT OUTER JOIN partial USING(launcher_id)
-                WHERE strftime('%s', 'now','-1 day')<timestamp OR timestamp IS NULL
                 GROUP BY launcher_id''',
             (),
         )

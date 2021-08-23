@@ -131,7 +131,9 @@ class PoolServer:
                     resp.append({
                         "amount": coin.amount/1E12,
                         "to": encode_puzzle_hash(coin.puzzle_hash, "xch"),
-                        "time": datetime.fromtimestamp(tx.created_at_time).strftime("%Y.%m.%d %H:%M")
+                        "block": tx.confirmed_at_height,
+                        "time": datetime.fromtimestamp(tx.created_at_time).strftime("%Y.%m.%d %H:%M"),
+                        "timestamp": tx.created_at_time
                     })
         return obj_to_response(resp)
 
@@ -223,7 +225,7 @@ class PoolServer:
         farmer_records: Optional[list[FarmerRecord]] = await self.pool.store.get_farmer_record_for_all_farmers()
         if farmer_records is None:
             return error_response(
-                PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id.hex()} unknown."
+                PoolErrorCode.FARMER_NOT_KNOWN, f"Get farmers request failed."
             )
 
         # response: list[dict] = [{
