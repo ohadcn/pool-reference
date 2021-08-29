@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import os
+import ssl
 import time
 import traceback
 from typing import Dict, Callable, Optional
 
 import aiohttp
+import yaml
 from blspy import AugSchemeMPL, G2Element
 from aiohttp import web
 from chia.protocols.pool_protocol import (
@@ -31,7 +34,7 @@ from chia.util.config import load_config
 from .record import FarmerRecord
 from .pool import Pool
 from .store.abstract import AbstractPoolStore
-from .util import error_response
+from .util import error_response, RequestMetadata
 
 
 def allow_cors(response: web.Response) -> web.Response:
@@ -48,11 +51,27 @@ def check_authentication_token(launcher_id: bytes32, token: uint64, timeout: uin
     return None
 
 
+def get_ssl_context(config):
+    if config["server"]["server_use_ssl"] is False:
+        return None
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(config["server"]["server_ssl_crt"], config["server"]["server_ssl_key"])
+    return ssl_context
+
+
 class PoolServer:
     def __init__(self, config: Dict, constants: ConsensusConstants, pool_store: Optional[AbstractPoolStore] = None):
 
+        # We load our configurations from here
+        with open(os.getcwd() + "/config.yaml") as f:
+            pool_config: Dict = yaml.safe_load(f)
+
         self.log = logging.getLogger(__name__)
-        self.pool = Pool(config, constants, pool_store)
+        self.pool = Pool(config, pool_config, constants, pool_store)
+
+        self.pool_config = pool_config
+        self.host = pool_config["server"]["server_host"]
+        self.port = int(pool_config["server"]["server_port"])
 
     async def start(self):
         await self.pool.start()
@@ -134,6 +153,16 @@ class PoolServer:
         self.pool.log.info(f"get_farmer response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
         return obj_to_response(response)
 
+    def post_metadata_from_request(self, request_obj):
+        return RequestMetadata(
+            url=str(request_obj.url),
+            scheme=request_obj.scheme,
+            headers=request_obj.headers,
+            cookies=dict(request_obj.cookies),
+            query=dict(request_obj.query),
+            remote=request_obj.remote,
+        )
+
     async def post_farmer(self, request_obj) -> web.Response:
         # TODO(pool): add rate limiting
         post_farmer_request: PostFarmerRequest = PostFarmerRequest.from_json_dict(await request_obj.json())
@@ -146,7 +175,8 @@ class PoolServer:
         if authentication_token_error is not None:
             return authentication_token_error
 
-        post_farmer_response = await self.pool.add_farmer(post_farmer_request)
+        post_farmer_response = await self.pool.add_farmer(
+            post_farmer_request, self.post_metadata_from_request(request_obj))
 
         self.pool.log.info(
             f"post_farmer response {post_farmer_response}, "
@@ -167,7 +197,8 @@ class PoolServer:
             return authentication_token_error
 
         # Process the request
-        put_farmer_response = await self.pool.update_farmer(put_farmer_request)
+        put_farmer_response = await self.pool.update_farmer(put_farmer_request,
+                                                            self.post_metadata_from_request(request_obj))
 
         self.pool.log.info(
             f"put_farmer response {put_farmer_response}, "
@@ -196,7 +227,7 @@ class PoolServer:
                 f"Farmer with launcher_id {partial.payload.launcher_id.hex()} not known.",
             )
 
-        post_partial_response = await self.pool.process_partial(partial, farmer_record, start_time)
+        post_partial_response = await self.pool.process_partial(partial, farmer_record, uint64(int(start_time)))
 
         self.pool.log.info(
             f"post_partial response {post_partial_response}, time: {time.time() - start_time} "
@@ -233,6 +264,9 @@ class PoolServer:
 
         self.pool.log.info(f"Login successful for launcher_id: {launcher_id.hex()}")
 
+        return await self.login_response(launcher_id)
+
+    async def login_response(self, launcher_id):
         record: Optional[FarmerRecord] = await self.pool.store.get_farmer_record(launcher_id)
         response = {}
         if record is not None:
@@ -240,12 +274,11 @@ class PoolServer:
             recent_partials = await self.pool.store.get_recent_partials(launcher_id, 20)
             response["recent_partials"] = recent_partials
 
-        # TODO(pool) Do what ever you like with the successful login
         return obj_to_response(response)
 
 
 server: Optional[PoolServer] = None
-runner = None
+runner: Optional[aiohttp.web.BaseRunner] = None
 
 
 async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
@@ -257,7 +290,6 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
     server = PoolServer(config, constants, pool_store)
     await server.start()
 
-    # TODO(pool): support TLS
     app = web.Application()
     app.add_routes(
         [
@@ -272,9 +304,17 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
     )
     runner = aiohttp.web.AppRunner(app, access_log=None)
     await runner.setup()
-    site = aiohttp.web.TCPSite(runner, "0.0.0.0", int(80))
+    ssl_context = get_ssl_context(server.pool_config)
+    site = aiohttp.web.TCPSite(
+        runner,
+        host=server.host,
+        port=server.port,
+        ssl_context=ssl_context,
+    )
     await site.start()
-    await asyncio.sleep(10000000)
+
+    while True:
+        await asyncio.sleep(3600)
 
 
 async def stop():

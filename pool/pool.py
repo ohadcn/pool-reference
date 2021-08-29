@@ -5,12 +5,10 @@ import time
 import traceback
 from asyncio import Task
 from math import floor
-from typing import Dict, Optional, Set, List, Tuple
-
-import os
-import yaml
+from typing import Dict, Optional, Set, List, Tuple, Callable
 
 from blspy import AugSchemeMPL, G1Element
+from chia.consensus.block_rewards import calculate_pool_reward
 from chia.pools.pool_wallet_info import PoolState, PoolSingletonState
 from chia.protocols.pool_protocol import (
     PoolErrorCode,
@@ -25,7 +23,7 @@ from chia.protocols.pool_protocol import (
 from chia.rpc.wallet_rpc_client import WalletRpcClient
 from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_record import CoinRecord
-from chia.types.coin_solution import CoinSolution
+from chia.types.coin_spend import CoinSpend
 from chia.util.bech32m import decode_puzzle_hash
 from chia.consensus.constants import ConsensusConstants
 from chia.util.ints import uint8, uint16, uint32, uint64
@@ -40,29 +38,32 @@ from chia.util.lru_cache import LRUCache
 from chia.util.chia_logging import initialize_logging
 from chia.wallet.transaction_record import TransactionRecord
 from chia.pools.pool_puzzles import (
-    get_most_recent_singleton_coin_from_coin_solution,
+    get_most_recent_singleton_coin_from_coin_spend,
     get_delayed_puz_info_from_launcher_spend,
     launcher_id_to_p2_puzzle_hash,
 )
 
 from .difficulty_adjustment import get_new_difficulty
-from .singleton import create_absorb_transaction, get_singleton_state, get_coin_spend
+from .singleton import create_absorb_transaction, get_singleton_state, get_coin_spend, get_farmed_height
 from .store.abstract import AbstractPoolStore
 from .store.sqlite_store import SqlitePoolStore
 from .record import FarmerRecord
-from .util import error_dict
+from .util import error_dict, RequestMetadata
 
 
 class Pool:
-    def __init__(self, config: Dict, constants: ConsensusConstants, pool_store: Optional[AbstractPoolStore] = None):
+    def __init__(
+        self,
+        config: Dict,
+        pool_config: Dict,
+        constants: ConsensusConstants,
+        pool_store: Optional[AbstractPoolStore] = None,
+        difficulty_function: Callable = get_new_difficulty,
+    ):
         self.follow_singleton_tasks: Dict[bytes32, asyncio.Task] = {}
         self.log = logging
         # If you want to log to a file: use filename='example.log', encoding='utf-8'
         self.log.basicConfig(level=logging.INFO)
-
-        # We load our configurations from here
-        with open(os.getcwd() + "/config.yaml") as f:
-            pool_config: Dict = yaml.safe_load(f)
 
         initialize_logging("pool", pool_config["logging"], pathlib.Path(pool_config["logging"]["log_path"]))
 
@@ -91,6 +92,7 @@ class Pool:
         self.pool_url = pool_config["pool_url"]
         self.min_difficulty = uint64(pool_config["min_difficulty"])  # 10 difficulty is about 1 proof a day per plot
         self.default_difficulty: uint64 = uint64(pool_config["default_difficulty"])
+        self.difficulty_function: Callable = difficulty_function
 
         self.pending_point_partials: Optional[asyncio.Queue] = None
         self.recent_points_added: LRUCache = LRUCache(20000)
@@ -264,6 +266,10 @@ class Pool:
                 ph_to_coins: Dict[bytes32, List[CoinRecord]] = {}
                 not_buried_amounts = 0
                 for cr in coin_records:
+                    if not cr.coinbase:
+                        self.log.info(f"Non coinbase coin: {cr.coin}, ignoring")
+                        continue
+
                     if cr.confirmed_block_index > peak_height - self.confirmation_security_threshold:
                         not_buried_amounts += cr.coin.amount
                         continue
@@ -275,7 +281,7 @@ class Pool:
 
                 # For each p2sph, get the FarmerRecords
                 farmer_records = await self.store.get_farmer_records_for_p2_singleton_phs(
-                    set([ph for ph in ph_to_amounts.keys()])
+                    set(ph for ph in ph_to_amounts.keys())
                 )
 
                 # For each singleton, create, submit, and save a claim transaction
@@ -294,7 +300,7 @@ class Pool:
 
                 for rec in farmer_records:
                     if rec.is_pool_member:
-                        singleton_tip: Optional[Coin] = get_most_recent_singleton_coin_from_coin_solution(
+                        singleton_tip: Optional[Coin] = get_most_recent_singleton_coin_from_coin_spend(
                             rec.singleton_tip
                         )
                         if singleton_tip is None:
@@ -358,7 +364,9 @@ class Pool:
                 self.log.info("Starting to create payment")
 
                 coin_records: List[CoinRecord] = await self.node_rpc_client.get_coin_records_by_puzzle_hash(
-                    self.default_target_puzzle_hash, include_spent_coins=False
+                    self.default_target_puzzle_hash,
+                    include_spent_coins=False,
+                    start_height=self.scan_start_height,
                 )
 
                 if len(coin_records) == 0:
@@ -369,6 +377,10 @@ class Pool:
                 total_amount_claimed = sum([c.coin.amount for c in coin_records])
                 pool_coin_amount = int(total_amount_claimed * self.pool_fee)
                 amount_to_distribute = total_amount_claimed - pool_coin_amount
+
+                if total_amount_claimed < calculate_pool_reward(uint32(1)):  # 1.75 XCH
+                    self.log.info(f"Do not have enough funds to distribute: {total_amount_claimed}, skipping payout")
+                    continue
 
                 self.log.info(f"Total amount claimed: {total_amount_claimed / (10 ** 12)}")
                 self.log.info(f"Pool coin amount (includes blockchain fee) {pool_coin_amount  / (10 ** 12)}")
@@ -389,7 +401,8 @@ class Pool:
                             {"puzzle_hash": self.pool_fee_puzzle_hash, "amount": pool_coin_amount}
                         ]
                         for points, ph in points_and_ph:
-                            additions_sub_list.append({"puzzle_hash": ph, "amount": points * mojo_per_point})
+                            if points > 0:
+                                additions_sub_list.append({"puzzle_hash": ph, "amount": points * mojo_per_point})
 
                             if len(additions_sub_list) == self.max_additions_per_transaction:
                                 await self.pending_payments.put(additions_sub_list.copy())
@@ -432,7 +445,7 @@ class Pool:
                 # TODO(pool): make sure you have enough to pay the blockchain fee, this will be taken out of the pool
                 # fee itself. Alternatively you can set it to 0 and wait longer
                 # blockchain_fee = 0.00001 * (10 ** 12) * len(payment_targets)
-                blockchain_fee = 0
+                blockchain_fee: uint64 = uint64(0)
                 try:
                     transaction: TransactionRecord = await self.wallet_rpc_client.send_transaction_multi(
                         self.wallet_id, payment_targets, fee=blockchain_fee
@@ -518,7 +531,7 @@ class Pool:
 
             # Now we need to check to see that the singleton in the blockchain is still assigned to this pool
             singleton_state_tuple: Optional[
-                Tuple[CoinSolution, PoolState, bool]
+                Tuple[CoinSpend, PoolState, bool]
             ] = await self.get_and_validate_singleton_state(partial.payload.launcher_id)
 
             if singleton_state_tuple is None:
@@ -539,12 +552,15 @@ class Pool:
 
                 if farmer_record.is_pool_member:
                     await self.store.add_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received)
-                    self.log.info(f"Farmer {farmer_record.launcher_id} updated points to: " f"{farmer_record.points + points_received}")
+                    self.log.info(
+                        f"Farmer {farmer_record.launcher_id} updated points to: "
+                        f"{farmer_record.points + points_received}"
+                    )
         except Exception as e:
             error_stack = traceback.format_exc()
             self.log.error(f"Exception in confirming partial: {e} {error_stack}")
 
-    async def add_farmer(self, request: PostFarmerRequest) -> Dict:
+    async def add_farmer(self, request: PostFarmerRequest, metadata: RequestMetadata) -> Dict:
         async with self.store.lock:
             farmer_record: Optional[FarmerRecord] = await self.store.get_farmer_record(request.payload.launcher_id)
             if farmer_record is not None:
@@ -554,7 +570,7 @@ class Pool:
                 )
 
             singleton_state_tuple: Optional[
-                Tuple[CoinSolution, PoolState, bool]
+                Tuple[CoinSpend, PoolState, bool]
             ] = await self.get_and_validate_singleton_state(request.payload.launcher_id)
 
             if singleton_state_tuple is None:
@@ -586,7 +602,7 @@ class Pool:
             )
             assert launcher_coin is not None and launcher_coin.spent
 
-            launcher_solution: Optional[CoinSolution] = await get_coin_spend(self.node_rpc_client, launcher_coin)
+            launcher_solution: Optional[CoinSpend] = await get_coin_spend(self.node_rpc_client, launcher_coin)
             delay_time, delay_puzzle_hash = get_delayed_puz_info_from_launcher_spend(launcher_solution)
 
             if delay_time < 3600:
@@ -610,11 +626,11 @@ class Pool:
                 True,
             )
             self.scan_p2_singleton_puzzle_hashes.add(p2_singleton_puzzle_hash)
-            await self.store.add_farmer_record(farmer_record)
+            await self.store.add_farmer_record(farmer_record, metadata)
 
             return PostFarmerResponse(self.welcome_message).to_json_dict()
 
-    async def update_farmer(self, request: PutFarmerRequest) -> Dict:
+    async def update_farmer(self, request: PutFarmerRequest, metadata: RequestMetadata) -> Dict:
         launcher_id = request.payload.launcher_id
         # First check if this launcher_id is currently blocked for farmer updates, if so there is no reason to validate
         # all the stuff below
@@ -625,7 +641,7 @@ class Pool:
             return error_dict(PoolErrorCode.FARMER_NOT_KNOWN, f"Farmer with launcher_id {launcher_id} not known.")
 
         singleton_state_tuple: Optional[
-            Tuple[CoinSolution, PoolState, bool]
+            Tuple[CoinSpend, PoolState, bool]
         ] = await self.get_and_validate_singleton_state(launcher_id)
 
         if singleton_state_tuple is None:
@@ -658,7 +674,7 @@ class Pool:
 
         if request.payload.suggested_difficulty is not None:
             is_new_value = (
-                farmer_record.suggested_difficulty != request.payload.suggested_difficulty
+                farmer_record.difficulty != request.payload.suggested_difficulty
                 and request.payload.suggested_difficulty is not None
                 and request.payload.suggested_difficulty >= self.min_difficulty
             )
@@ -668,18 +684,20 @@ class Pool:
 
         async def update_farmer_later():
             await asyncio.sleep(self.farmer_update_cooldown_seconds)
-            await self.store.add_farmer_record(FarmerRecord.from_json_dict(farmer_dict))
+            await self.store.add_farmer_record(FarmerRecord.from_json_dict(farmer_dict), metadata)
             self.farmer_update_blocked.remove(launcher_id)
             self.log.info(f"Updated farmer: {response_dict}")
 
         self.farmer_update_blocked.add(launcher_id)
-        await asyncio.create_task(update_farmer_later())
+        asyncio.create_task(update_farmer_later())
 
-        return PutFarmerResponse.from_json_dict(response_dict).from_json_dict()
+        # TODO Fix chia-blockchain's Streamable implementation to support Optional in `from_json_dict`, then use
+        # PutFarmerResponse here and in the trace up.
+        return response_dict
 
     async def get_and_validate_singleton_state(
         self, launcher_id: bytes32
-    ) -> Optional[Tuple[CoinSolution, PoolState, bool]]:
+    ) -> Optional[Tuple[CoinSpend, PoolState, bool]]:
         """
         :return: the state of the singleton, if it currently exists in the blockchain, and if it is assigned to
         our pool, with the correct parameters. Otherwise, None. Note that this state must be buried (recent state
@@ -697,19 +715,20 @@ class Pool:
                     farmer_rec,
                     self.blockchain_state["peak"].height,
                     self.confirmation_security_threshold,
+                    self.constants.GENESIS_CHALLENGE,
                 )
             )
             self.follow_singleton_tasks[launcher_id] = singleton_task
             remove_after = True
 
-        optional_result: Optional[Tuple[CoinSolution, PoolState]] = await singleton_task
+        optional_result: Optional[Tuple[CoinSpend, PoolState, PoolState]] = await singleton_task
         if remove_after and launcher_id in self.follow_singleton_tasks:
             await self.follow_singleton_tasks.pop(launcher_id)
 
         if optional_result is None:
             return None
 
-        singleton_tip, singleton_tip_state = optional_result
+        buried_singleton_tip, buried_singleton_tip_state, singleton_tip_state = optional_result
 
         # Validate state of the singleton
         is_pool_member = True
@@ -730,7 +749,9 @@ class Pool:
             self.log.info(f"Invalid singleton state {singleton_tip_state.state} for launcher_id {launcher_id}")
             is_pool_member = False
         elif singleton_tip_state.state == PoolSingletonState.LEAVING_POOL.value:
-            coin_record: Optional[CoinRecord] = await self.node_rpc_client.get_coin_record_by_name(singleton_tip.coin)
+            coin_record: Optional[CoinRecord] = await self.node_rpc_client.get_coin_record_by_name(
+                buried_singleton_tip.coin.name()
+            )
             assert coin_record is not None
             if self.blockchain_state["peak"].height - coin_record.confirmed_block_index > self.relative_lock_height:
                 self.log.info(f"launcher_id {launcher_id} got enough confirmations to leave the pool")
@@ -739,15 +760,18 @@ class Pool:
         self.log.info(f"Is {launcher_id} pool member: {is_pool_member}")
 
         if farmer_rec is not None and (
-            farmer_rec.singleton_tip != singleton_tip or farmer_rec.singleton_tip_state != singleton_tip_state
+            farmer_rec.singleton_tip != buried_singleton_tip
+            or farmer_rec.singleton_tip_state != buried_singleton_tip_state
         ):
             # This means the singleton has been changed in the blockchain (either by us or someone else). We
             # still keep track of this singleton if the farmer has changed to a different pool, in case they
             # switch back.
             self.log.info(f"Updating singleton state for {launcher_id}")
-            await self.store.update_singleton(launcher_id, singleton_tip, singleton_tip_state, is_pool_member)
+            await self.store.update_singleton(
+                launcher_id, buried_singleton_tip, buried_singleton_tip_state, is_pool_member
+            )
 
-        return singleton_tip, singleton_tip_state, is_pool_member
+        return buried_singleton_tip, buried_singleton_tip_state, is_pool_member
 
     async def process_partial(
         self,
@@ -841,7 +865,7 @@ class Pool:
                     partial.payload.launcher_id, self.number_of_partials_target
                 )
                 # Only update the difficulty if we meet certain conditions
-                new_difficulty: uint64 = get_new_difficulty(
+                new_difficulty: uint64 = self.difficulty_function(
                     recent_partials,
                     int(self.number_of_partials_target),
                     int(self.time_target),
