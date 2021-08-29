@@ -213,6 +213,9 @@ class PoolServer:
         recent_partials = await self.pool.store.get_recent_partials(launcher_id, 20)
         response["recent_partials"] = recent_partials
 
+        points_by_date = await self.pool.store.get_points_by_date(launcher_id, 30)
+        response["points_by_date"] = points_by_date
+
         # self.pool.log.info(f"get_farmer_public response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
         return obj_to_response(response)
 
@@ -229,13 +232,6 @@ class PoolServer:
                 PoolErrorCode.FARMER_NOT_KNOWN, f"Get farmers request failed."
             )
 
-        # response: list[dict] = [{
-        #     "difficulty": farmer_record.difficulty,
-        #     "points": farmer_record.points,
-        #     "launcher_id": farmer_record.launcher_id
-        #  } for farmer_record in farmer_records]
-
-        self.pool.log.info(f"get_farmers response")
         return obj_to_response(farmer_records)
 
     def post_metadata_from_request(self, request_obj):

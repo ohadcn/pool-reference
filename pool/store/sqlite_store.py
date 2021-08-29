@@ -220,6 +220,15 @@ class SqlitePoolStore(AbstractPoolStore):
         ret: List[Tuple[uint64, uint64]] = [(uint64(timestamp), uint64(difficulty)) for timestamp, difficulty in rows]
         return ret
 
+    async def get_points_by_date(self, launcher_id: bytes32, count: int) -> List[Tuple[uint64, uint64]]:
+        cursor = await self.connection.execute(
+            "SELECT strftime('%Y.%m.%d',timestamp) as date, SUM(difficulty) as points from partial WHERE launcher_id=? GROUP BY strftime('%Y.%m.%d',timestamp) LIMIT ?",
+            (launcher_id.hex(), count),
+        )
+        rows = await cursor.fetchall()
+        ret: List[Tuple[uint64, uint64]] = [(uint64(timestamp), uint64(difficulty)) for timestamp, difficulty in rows]
+        return ret
+
     async def get_recent_partials_all_farmers(self, count: int) -> List[Tuple[uint64, uint64, str]]:
         cursor = await self.connection.execute(
             "SELECT timestamp, difficulty, launcher_id from partial ORDER BY timestamp DESC LIMIT ?",

@@ -73,3 +73,7 @@ class AbstractPoolStore(ABC):
     @abstractmethod
     async def get_recent_partials(self, launcher_id: bytes32, count: int) -> List[Tuple[uint64, uint64]]:
         """Fetch last ``count`` partials for Farmer identified by ``launcher_id``"""
+
+    @abstractmethod
+    async def get_points_by_date(self, launcher_id: bytes32, count: int) -> List[Tuple[uint64, uint64]]:
+        """Fetch last month partials for farmer"""
