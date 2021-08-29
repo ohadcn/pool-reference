@@ -226,7 +226,7 @@ class SqlitePoolStore(AbstractPoolStore):
             (launcher_id.hex(), count),
         )
         rows = await cursor.fetchall()
-        ret: List[Tuple[uint64, uint64]] = [(uint64(timestamp), uint64(difficulty)) for timestamp, difficulty in rows]
+        ret: List[Tuple[str, uint64]] = [(str(date), uint64(points)) for date, points in rows]
         return ret
 
     async def get_recent_partials_all_farmers(self, count: int) -> List[Tuple[uint64, uint64, str]]:
