@@ -133,7 +133,7 @@ class PoolServer:
                         "to": encode_puzzle_hash(coin.puzzle_hash, "xch"),
                         "block": tx.confirmed_at_height,
                         "parent": tx.name,
-                        "time": datetime.fromtimestamp(tx.created_at_time).strftime("%Y.%m.%d %H:%M"),
+                        "time": datetime.fromtimestamp(tx.created_at_time).strftime("%d/%m/%Y %H:%M"),
                         "timestamp": tx.created_at_time
                     })
         return obj_to_response(resp)
@@ -213,7 +213,7 @@ class PoolServer:
         recent_partials = await self.pool.store.get_recent_partials(launcher_id, 20)
         response["recent_partials"] = recent_partials
 
-        points_by_date = await self.pool.store.get_points_by_date(launcher_id, 30)
+        points_by_date = await self.pool.store.get_points_by_date(launcher_id, 23)
         response["points_by_date"] = points_by_date
 
         # self.pool.log.info(f"get_farmer_public response {response.to_json_dict()}, " f"launcher_id: {launcher_id.hex()}")
