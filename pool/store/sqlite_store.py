@@ -112,6 +112,7 @@ class SqlitePoolStore(AbstractPoolStore):
                 MIN(timestamp) as joinDate
                 FROM farmer
                 LEFT OUTER JOIN partial USING(launcher_id)
+                WHERE is_pool_member=1
                 GROUP BY launcher_id''',
             (),
         )
@@ -174,7 +175,7 @@ class SqlitePoolStore(AbstractPoolStore):
         return [self._row_to_farmer_record(row) for row in rows]
 
     async def get_farmer_points_and_payout_instructions(self) -> List[Tuple[uint64, bytes]]:
-        cursor = await self.connection.execute(f"SELECT points, payout_instructions from farmer")
+        cursor = await self.connection.execute(f"SELECT points, payout_instructions from farmer WHERE is_pool_member=1")
         rows = await cursor.fetchall()
         accumulated: Dict[bytes32, uint64] = {}
         for row in rows:
