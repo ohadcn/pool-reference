@@ -41,7 +41,7 @@ from .pool import Pool
 from .record import FarmerRecord
 from .store.abstract import AbstractPoolStore
 from .util import error_response, RequestMetadata
-from .netspace import netstorge_async
+from .netspace import netstorge_async, block_height
 
 def allow_cors(response: web.Response) -> web.Response:
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -225,6 +225,12 @@ class PoolServer:
         self.pool.log.info(val, json_str)
         return web.Response(body=json_str, content_type="application/json")
 
+    async def get_block_height(self, request_obj) -> web.Response:
+        val = await block_height(None)
+        json_str = '{"value": ' + str(val) + '}'
+        self.pool.log.info(val, json_str)
+        return web.Response(body=json_str, content_type="application/json")
+
     async def get_farmers(self, _) -> web.Response:
         farmer_records: Optional[list[FarmerRecord]] = await self.pool.store.get_farmer_record_for_all_farmers()
         if farmer_records is None:
@@ -383,6 +389,7 @@ async def start_pool_server(pool_store: Optional[AbstractPoolStore] = None):
         [
             web.get("/", server.wrap_http_handler(server.index)),
             web.get("/netspace", server.wrap_http_handler(server.get_netspace)),
+            web.get("/block_height", server.wrap_http_handler(server.get_block_height)),
             web.get("/pool_info", server.wrap_http_handler(server.get_pool_info)),
             web.get("/farmer", server.wrap_http_handler(server.get_farmer)),
             web.get("/farmers", server.wrap_http_handler(server.get_farmers)),

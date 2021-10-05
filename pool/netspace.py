@@ -56,3 +56,35 @@ async def netstorge_async(rpc_port: Optional[int], delta_block_height: str, star
 
     client.close()
     await client.await_closed()
+
+
+async def block_height(rpc_port: Optional[int]):
+    """
+    Calculates the estimated space on the network given two block header hashes.
+    """
+    try:
+        config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
+        self_hostname = config["self_hostname"]
+        if rpc_port is None:
+            rpc_port = config["full_node"]["rpc_port"]
+        client = await FullNodeRpcClient.create(self_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
+
+        blockchain_state = await client.get_blockchain_state()
+        if blockchain_state["peak"] is None:
+            print("No blocks in blockchain")
+            client.close()
+            await client.await_closed()
+            return None
+
+        newer_block_height = blockchain_state["peak"].height
+        client.close()
+        await client.await_closed()
+        return newer_block_height
+    except Exception as e:
+        if isinstance(e, aiohttp.ClientConnectorError):
+            print(f"Connection error. Check if full node rpc is running at {rpc_port}")
+        else:
+            print(f"Exception {e}")
+
+    client.close()
+    await client.await_closed()
