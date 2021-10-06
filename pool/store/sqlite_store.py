@@ -214,6 +214,14 @@ class SqlitePoolStore(AbstractPoolStore):
         await cursor.close()
         await self.connection.commit()
 
+    async def store_invalid_partial(self, launcher_id: bytes32, timestamp: uint64, difficulty: uint64, harvester: bytes32, reason: str):
+        cursor = await self.connection.execute(
+            "INSERT into invalid_partial VALUES(?, ?, ?, ?, ?)",
+            (launcher_id.hex(), timestamp, difficulty, harvester.hex(), reason),
+        )
+        await cursor.close()
+        await self.connection.commit()
+
     async def get_recent_partials(self, launcher_id: bytes32, count: int) -> List[Tuple[uint64, uint64]]:
         cursor = await self.connection.execute(
             "SELECT timestamp, difficulty from partial WHERE launcher_id=? ORDER BY timestamp DESC LIMIT ?",

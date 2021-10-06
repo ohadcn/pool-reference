@@ -71,6 +71,10 @@ class AbstractPoolStore(ABC):
         """Register new partial and update corresponding Farmer's points"""
 
     @abstractmethod
+    async def store_invalid_partial(self, launcher_id: bytes32, timestamp: uint64, difficulty: uint64, harvester: bytes32, reason: str):
+        """Store invalid partial for statistical reasons"""
+
+    @abstractmethod
     async def get_recent_partials(self, launcher_id: bytes32, count: int) -> List[Tuple[uint64, uint64]]:
         """Fetch last ``count`` partials for Farmer identified by ``launcher_id``"""
 
