@@ -222,13 +222,13 @@ class PoolServer:
     async def get_netspace(self, request_obj) -> web.Response:
         val = await netstorge_async(None, 4096, "")
         json_str = '{"value": ' + str(val) + '}'
-        self.pool.log.info(val, json_str)
+        self.pool.log.info(str(val), json_str)
         return web.Response(body=json_str, content_type="application/json")
 
     async def get_block_height(self, request_obj) -> web.Response:
         val = await block_height(None)
         json_str = '{"value": ' + str(val) + '}'
-        self.pool.log.info(val, json_str)
+        self.pool.log.info(str(val), json_str)
         return web.Response(body=json_str, content_type="application/json")
 
     async def get_farmers(self, _) -> web.Response:
