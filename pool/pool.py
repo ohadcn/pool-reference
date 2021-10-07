@@ -513,13 +513,13 @@ class Pool:
                 response = await self.node_rpc_client.get_recent_signage_point_or_eos(None, partial.payload.sp_hash)
                 if response is None or response["reverted"]:
                     self.log.info(f"Partial EOS reverted: {partial.payload.sp_hash}")
-                    await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester, "EOS_REVERTED")
+                    await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester_id, "EOS_REVERTED")
                     return
             else:
                 response = await self.node_rpc_client.get_recent_signage_point_or_eos(partial.payload.sp_hash, None)
                 if response is None or response["reverted"]:
                     self.log.info(f"Partial SP reverted: {partial.payload.sp_hash}")
-                    await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester, "SP_REVERTED")
+                    await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester_id, "SP_REVERTED")
                     return
 
             # Now we know that the partial came on time, but also that the signage point / EOS is still in the
@@ -527,7 +527,7 @@ class Pool:
             pos_hash = partial.payload.proof_of_space.get_hash()
             if self.recent_points_added.get(pos_hash):
                 self.log.info(f"Double signage point submitted for proof: {partial.payload}")
-                await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester, "ALREADY_SUBMITTED")
+                await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester_id, "ALREADY_SUBMITTED")
                 return
             self.recent_points_added.put(pos_hash, uint64(1))
 
@@ -538,13 +538,13 @@ class Pool:
 
             if singleton_state_tuple is None:
                 self.log.info(f"Invalid singleton {partial.payload.launcher_id}")
-                await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester, "SINGELTON_INVALID")
+                await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester_id, "SINGELTON_INVALID")
                 return
 
             _, _, is_member = singleton_state_tuple
             if not is_member:
                 self.log.info(f"Singleton is not assigned to this pool")
-                await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester, "NOT_MEMBER")
+                await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), points_received, partial.payload.harvester_id, "NOT_MEMBER")
                 return
 
             async with self.store.lock:
@@ -789,14 +789,14 @@ class Pool:
         pk2: G1Element = farmer_record.authentication_public_key
         valid_sig = AugSchemeMPL.aggregate_verify([pk1, pk2], [message, message], partial.aggregate_signature)
         if not valid_sig:
-            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester, "INVALID_SIGNATURE")
+            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester_id, "INVALID_SIGNATURE")
             return error_dict(
                 PoolErrorCode.INVALID_SIGNATURE,
                 f"The aggregate signature is invalid {partial.aggregate_signature}",
             )
 
         if partial.payload.proof_of_space.pool_contract_puzzle_hash != farmer_record.p2_singleton_puzzle_hash:
-            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester, "INVALID_P2_SINGLETON_PUZZLE_HASH")
+            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester_id, "INVALID_P2_SINGLETON_PUZZLE_HASH")
             return error_dict(
                 PoolErrorCode.INVALID_P2_SINGLETON_PUZZLE_HASH,
                 f"Invalid pool contract puzzle hash {partial.payload.proof_of_space.pool_contract_puzzle_hash}",
@@ -815,7 +815,7 @@ class Pool:
             response = await get_signage_point_or_eos()
 
         if response is None or response["reverted"]:
-            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester, "EOS_OR_SP_NOT_FOUND")
+            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester_id, "EOS_OR_SP_NOT_FOUND")
             return error_dict(
                 PoolErrorCode.NOT_FOUND, f"Did not find signage point or EOS {partial.payload.sp_hash}, {response}"
             )
@@ -825,7 +825,7 @@ class Pool:
         end_of_sub_slot: Optional[EndOfSubSlotBundle] = response.get("eos", None)
 
         if time_received_partial - node_time_received_sp > self.partial_time_limit:
-            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester, "TOO_LATE")
+            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester_id, "TOO_LATE")
             return error_dict(
                 PoolErrorCode.TOO_LATE,
                 f"Received partial in {time_received_partial - node_time_received_sp}. "
@@ -844,7 +844,7 @@ class Pool:
             self.constants, challenge_hash, partial.payload.sp_hash
         )
         if quality_string is None:
-            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester, "INVALID_PROOF")
+            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester_id, "INVALID_PROOF")
             return error_dict(PoolErrorCode.INVALID_PROOF, f"Invalid proof of space {partial.payload.sp_hash}")
 
         current_difficulty = farmer_record.difficulty
@@ -857,7 +857,7 @@ class Pool:
         )
 
         if required_iters >= self.iters_limit:
-            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester, "PROOF_NOT_GOOD_ENOUGH")
+            await self.store.store_invalid_partial(partial.payload.launcher_id, uint64(int(time.time())), 0, partial.payload.harvester_id, "PROOF_NOT_GOOD_ENOUGH")
             return error_dict(
                 PoolErrorCode.PROOF_NOT_GOOD_ENOUGH,
                 f"Proof of space has required iters {required_iters}, too high for difficulty " f"{current_difficulty}",
