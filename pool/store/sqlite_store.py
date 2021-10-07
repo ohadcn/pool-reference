@@ -198,10 +198,10 @@ class SqlitePoolStore(AbstractPoolStore):
         await cursor.close()
         await self.connection.commit()
 
-    async def add_partial(self, launcher_id: bytes32, timestamp: uint64, difficulty: uint64):
+    async def add_partial(self, launcher_id: bytes32, timestamp: uint64, difficulty: uint64, harvester: bytes32):
         cursor = await self.connection.execute(
-            "INSERT into partial VALUES(?, ?, ?)",
-            (launcher_id.hex(), timestamp, difficulty),
+            "INSERT into partial VALUES(?, ?, ?, ?)",
+            (launcher_id.hex(), timestamp, difficulty, harvester.hex()),
         )
         await cursor.close()
         cursor = await self.connection.execute(f"SELECT points from farmer where launcher_id=?", (launcher_id.hex(),))
