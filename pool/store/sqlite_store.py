@@ -106,14 +106,16 @@ class SqlitePoolStore(AbstractPoolStore):
         # TODO(pool): use cache
         cursor = await self.connection.execute(
             '''SELECT farmer.difficulty,points,launcher_id,
-                SUM(case when strftime('%s', 'now','-1 day')<timestamp then 1 else 0 end) AS partials,
-                COALESCE(SUM(case when strftime('%s', 'now','-1 day')<timestamp then partial.difficulty else 0 end), 0) AS points24,
+                SUM(case when strftime('%s', 'now','-1 day')<partial.timestamp then 1 else 0 end) AS partials,
+                COALESCE(SUM(case when strftime('%s', 'now','-1 day')<partial.timestamp then partial.difficulty else 0 end), 0) AS points24,
                 payout_instructions,
-                MIN(timestamp) as joinDate,
+                MIN(partial.timestamp) as joinDate,
                 p2_singleton_puzzle_hash,
-				COUNT(DISTINCT harvester)
+				COUNT(DISTINCT partial.harvester),
+                SUM(case when strftime('%s', 'now','-1 day')<invalid_partial.timestamp then 1 else 0 end) AS invalid_partials
                 FROM farmer
                 LEFT OUTER JOIN partial USING(launcher_id)
+                LEFT OUTER JOIN invalid_partial USING(launcher_id)
                 WHERE is_pool_member=1
                 GROUP BY launcher_id''',
             (),
@@ -130,7 +132,8 @@ class SqlitePoolStore(AbstractPoolStore):
             "payout_address": encode_puzzle_hash(bytes.fromhex(row[5]), "xch"),
             "joinDate": row[6],
             "puzzle_hash": row[7],
-            "harvesters": row[8]
+            "harvesters": row[8],
+            "invalid_partials": row[9]
         } for row in rows]
 
     async def update_difficulty(self, launcher_id: bytes32, difficulty: uint64):
