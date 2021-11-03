@@ -106,16 +106,16 @@ class SqlitePoolStore(AbstractPoolStore):
         # TODO(pool): use cache
         cursor = await self.connection.execute(
             '''SELECT farmer.difficulty,points,launcher_id,
-                SUM(case when strftime('%s', 'now','-1 day')<partial.timestamp then 1 else 0 end) AS partials,
-                COALESCE(SUM(case when strftime('%s', 'now','-1 day')<partial.timestamp then partial.difficulty else 0 end), 0) AS points24,
+                SUM(case when strftime('%s', 'now','-1 day')<timestamp and source='p' then 1 else 0 end) AS partials,
+                COALESCE(SUM(case when strftime('%s', 'now','-1 day')<timestamp and source='p' then p.difficulty else 0 end), 0) AS points24,
                 payout_instructions,
-                MIN(partial.timestamp) as joinDate,
+                MIN(timestamp) as joinDate,
                 p2_singleton_puzzle_hash,
-				COUNT(DISTINCT partial.harvester),
-                SUM(case when strftime('%s', 'now','-1 day')<invalid_partial.timestamp then 1 else 0 end) AS invalid_partials
-                FROM farmer
-                LEFT OUTER JOIN partial USING(launcher_id)
-                LEFT OUTER JOIN invalid_partial USING(launcher_id)
+				COUNT(DISTINCT harvester),
+                SUM(case when strftime('%s', 'now','-1 day')<timestamp and source='i' then 1 else 0 end) AS invalid_partials
+				FROM farmer
+                JOIN (SELECT launcher_id,harvester,difficulty,timestamp,'p' as source FROM partial
+                UNION SELECT launcher_id,harvester,difficulty,timestamp,'i' as source FROM invalid_partial) p USING(launcher_id)
                 WHERE is_pool_member=1
                 GROUP BY launcher_id''',
             (),
