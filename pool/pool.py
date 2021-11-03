@@ -79,6 +79,7 @@ class Pool:
         self.store: AbstractPoolStore = pool_store or SqlitePoolStore()
 
         self.pool_fee = pool_config["pool_fee"]
+        self.no_fees_days = pool_config["no_fees_days"]
 
         # This number should be held constant and be consistent for every pool in the network. DO NOT CHANGE
         self.iters_limit = self.constants.POOL_SUB_SLOT_ITERS // 64
@@ -389,9 +390,9 @@ class Pool:
                     # Get the points of each farmer, as well as payout instructions. Here a chia address is used,
                     # but other blockchain addresses can also be used.
                     points_and_ph: List[
-                        Tuple[uint64, bytes]
+                        Tuple[uint64, bytes, uint64]
                     ] = await self.store.get_farmer_points_and_payout_instructions()
-                    total_points = sum([pt for (pt, ph) in points_and_ph])
+                    total_points = sum([pt for (pt, ph, joined) in points_and_ph])
                     if total_points > 0:
                         mojo_per_point = floor(amount_to_distribute / total_points)
                         self.log.info(f"Paying out {mojo_per_point} mojo / point")
@@ -399,14 +400,24 @@ class Pool:
                         additions_sub_list: List[Dict] = [
                             {"puzzle_hash": self.pool_fee_puzzle_hash, "amount": pool_coin_amount}
                         ]
-                        for points, ph in points_and_ph:
+
+                        nofees = time.time()-30*24*60*60
+
+                        for points, ph, joined in points_and_ph:
                             if points > 0:
-                                additions_sub_list.append({"puzzle_hash": ph, "amount": points * mojo_per_point})
+                                amount = points * mojo_per_point
+                                if joined > nofees:
+                                    fees = self.pool_fee * (1-self.pool_fee) * amount
+                                    pool_coin_amount -= fees
+                                    amount += fees
+                                additions_sub_list.append({"puzzle_hash": ph, "amount": amount})
 
                             if len(additions_sub_list) == self.max_additions_per_transaction:
                                 await self.pending_payments.put(additions_sub_list.copy())
                                 self.log.info(f"Will make payments: {additions_sub_list}")
                                 additions_sub_list = []
+
+                        additions_sub_list.append({"puzzle_hash": self.pool_fee_puzzle_hash, "amount": pool_coin_amount})
 
                         if len(additions_sub_list) > 0:
                             self.log.info(f"Will make payments: {additions_sub_list}")
