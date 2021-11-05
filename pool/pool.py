@@ -398,7 +398,6 @@ class Pool:
                         self.log.info(f"Paying out {mojo_per_point} mojo / point")
 
                         additions_sub_list: List[Dict] = [
-                            {"puzzle_hash": self.pool_fee_puzzle_hash, "amount": pool_coin_amount}
                         ]
 
                         nofees = time.time()-30*24*60*60
