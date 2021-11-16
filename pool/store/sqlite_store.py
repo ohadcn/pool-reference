@@ -272,7 +272,7 @@ class SqlitePoolStore(AbstractPoolStore):
 
     async def get_points_by_date(self, launcher_id: bytes32, count: int) -> List[Tuple[uint64, uint64]]:
         cursor = await self.connection.execute(
-            "SELECT strftime('%H:00',datetime(timestamp, 'unixepoch'), 'localtime') as date, SUM(difficulty) as points from partial WHERE launcher_id=? AND strftime('%s', 'now','-1 day')<timestamp GROUP BY substr(strftime('%Y.%m.%d.%H',datetime(timestamp, 'unixepoch'))) LIMIT ?",
+            "SELECT strftime('%H:00',datetime(timestamp, 'unixepoch'), 'localtime') as date, SUM(difficulty) as points from partial WHERE launcher_id=? AND strftime('%s', 'now','-1 day')<timestamp GROUP BY strftime('%Y.%m.%d.%H',datetime(timestamp, 'unixepoch')) LIMIT ?",
             (launcher_id.hex(), count),
         )
         rows = await cursor.fetchall()
