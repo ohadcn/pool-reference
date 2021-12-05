@@ -215,13 +215,17 @@ class SqlitePoolStore(AbstractPoolStore):
         return [self._row_to_farmer_record(row) for row in rows]
 
     async def get_farmer_points_and_payout_instructions(self) -> List[Tuple[uint64, bytes, uint64]]:
-        cursor = await self.connection.execute(f"SELECT points, payout_instructions,MIN(timestamp) as joinDate from farmer LEFT OUTER JOIN partial USING(launcher_id) WHERE farmer.is_pool_member=1 GROUP BY launcher_id having points>0")
+        cursor = await self.connection.execute(f"""
+            SELECT points, payout_instructions,MIN(timestamp) as joinDate,
+            COALESCE(SUM(case when strftime('%s', 'now','-1 day')<timestamp then partial.difficulty else 0 end), 0) AS points24
+            FROM farmer LEFT OUTER JOIN partial USING(launcher_id) WHERE farmer.is_pool_member=1 GROUP BY launcher_id having points>0
+            """)
         rows = await cursor.fetchall()
         await cursor.close()
 
         accumulated: Dict[bytes32, uint64, uint64] = {}
         for row in rows:
-            points: uint64 = uint64(row[0])
+            points: uint64 = uint64(row[3])
             joined: uint64 = uint64(row[2])
             ph: bytes32 = bytes32(bytes.fromhex(row[1]))
             if ph in accumulated:
