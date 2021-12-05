@@ -282,7 +282,7 @@ class SqlitePoolStore(AbstractPoolStore):
             FROM partial WHERE launcher_id=? AND strftime('%s', 'now','-1 day')<timestamp
             GROUP BY strftime('%Y.%m.%d.%H.%M',datetime(timestamp, 'unixepoch')) LIMIT ?
             """,
-            (launcher_id.hex(), count),
+            (launcher_id.hex(), count * 60),
         )
         rows = await cursor.fetchall()
         ret: List[Tuple[str, uint64]] = [(str(date), uint64(points)) for date, points in rows]
