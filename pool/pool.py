@@ -23,6 +23,7 @@ from chia.rpc.wallet_rpc_client import WalletRpcClient
 from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_record import CoinRecord
 from chia.types.coin_spend import CoinSpend
+from chia.types.spend_bundle import SpendBundle
 from chia.util.bech32m import decode_puzzle_hash
 from chia.consensus.constants import ConsensusConstants
 from chia.util.ints import uint8, uint16, uint32, uint64
@@ -76,8 +77,9 @@ class Pool:
         self.config = config
         self.constants = constants
 
-        if pool_config.get('store') == "MariadbPoolStore":
+        if pool_config.get("store") == "MariadbPoolStore":
             from .store.mariadb_store import MariadbPoolStore
+
             self.store: AbstractPoolStore = pool_store or MariadbPoolStore()
         else:
             self.store: AbstractPoolStore = pool_store or SqlitePoolStore()
@@ -161,6 +163,9 @@ class Pool:
 
         # Whether or not the wallet is synced (required to make payments)
         self.wallet_synced = False
+
+        # The fee to pay ( In mojo ) when claiming a block reward
+        self.claim_fee: uint64 = uint64(pool_config.get("block_claim_fee", 0))
 
         # We target these many partials for this number of seconds. We adjust after receiving this many partials.
         self.number_of_partials_target: int = pool_config["number_of_partials_target"]
@@ -328,6 +333,9 @@ class Pool:
                             self.blockchain_state["peak"].height,
                             ph_to_coins[rec.p2_singleton_puzzle_hash],
                             self.constants.GENESIS_CHALLENGE,
+                            self.claim_fee,
+                            self.wallet_rpc_client,
+                            self.default_target_puzzle_hash,
                         )
 
                         if spend_bundle is None:
@@ -579,6 +587,25 @@ class Pool:
             error_stack = traceback.format_exc()
             self.log.error(f"Exception in confirming partial: {e} {error_stack}")
 
+    async def validate_payout_instructions(self, payout_instructions: str) -> Optional[str]:
+        """
+        Returns the puzzle hash as a hex string from the payout instructions (puzzle hash hex or bech32m address) if it's encoded
+        correctly, otherwise returns None.
+        """
+        try:
+            if len(decode_puzzle_hash(payout_instructions)) == 32:
+                return decode_puzzle_hash(payout_instructions).hex()
+        except ValueError:
+            # Not a Chia address
+            pass
+        try:
+            if len(hexstr_to_bytes(payout_instructions)) == 32:
+                return payout_instructions
+        except ValueError:
+            # Not a puzzle hash
+            pass
+        return None
+
     async def add_farmer(self, request: PostFarmerRequest, metadata: RequestMetadata) -> Dict:
         async with self.store.lock:
             farmer_record: Optional[FarmerRecord] = await self.store.get_farmer_record(request.payload.launcher_id)
@@ -607,10 +634,11 @@ class Pool:
             else:
                 difficulty = request.payload.suggested_difficulty
 
-            if len(hexstr_to_bytes(request.payload.payout_instructions)) != 32:
+            puzzle_hash: Optional[str] = await self.validate_payout_instructions(request.payload.payout_instructions)
+            if puzzle_hash is None:
                 return error_dict(
                     PoolErrorCode.INVALID_PAYOUT_INSTRUCTIONS,
-                    f"Payout instructions must be an xch address for this pool.",
+                    f"Payout instructions must be an xch address or puzzle hash for this pool.",
                 )
 
             if not AugSchemeMPL.verify(last_state.owner_pubkey, request.payload.get_hash(), request.signature):
@@ -641,7 +669,7 @@ class Pool:
                 last_state,
                 uint64(0),
                 difficulty,
-                request.payload.payout_instructions,
+                puzzle_hash,
                 True,
             )
             self.scan_p2_singleton_puzzle_hashes.add(p2_singleton_puzzle_hash)
