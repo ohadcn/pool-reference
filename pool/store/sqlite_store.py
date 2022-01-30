@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Set, List, Tuple, Dict
 
@@ -41,7 +42,8 @@ class SqlitePoolStore(AbstractPoolStore):
                 " points bigint,"
                 " difficulty bigint,"
                 " payout_instructions text,"
-                " is_pool_member tinyint)"
+                " is_pool_member tinyint,"
+                " first_seen bigint)"
             )
         )
 
@@ -69,6 +71,7 @@ class SqlitePoolStore(AbstractPoolStore):
             row[8],
             row[9],
             True if row[10] == 1 else False,
+            row[11],
         )
 
     async def add_farmer_record(self, farmer_record: FarmerRecord, metadata: RequestMetadata):
@@ -81,7 +84,7 @@ class SqlitePoolStore(AbstractPoolStore):
         # Insert for None
         if row is None:
             cursor = await self.connection.execute(
-                f"INSERT INTO farmer VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO farmer VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     farmer_record.launcher_id.hex(),
                     farmer_record.p2_singleton_puzzle_hash.hex(),
@@ -94,6 +97,7 @@ class SqlitePoolStore(AbstractPoolStore):
                     farmer_record.difficulty,
                     farmer_record.payout_instructions,
                     int(farmer_record.is_pool_member),
+                    int(datetime.now().timestamp()),
                 ),
             )
         # update for Exist
@@ -140,16 +144,16 @@ class SqlitePoolStore(AbstractPoolStore):
         # TODO(pool): use cache
         cursor = await self.connection.execute(
             '''SELECT farmer.difficulty,points,launcher_id,
-                SUM(case when strftime('%s', 'now','-1 day')<timestamp and source='p' then 1 else 0 end) AS partials,
-                COALESCE(SUM(case when strftime('%s', 'now','-1 day')<timestamp and source='p' then p.difficulty else 0 end), 0) AS points24,
+                SUM(case when source='p' then 1 else 0 end) AS partials,
+                COALESCE(SUM(case when source='p' then p.difficulty else 0 end), 0) AS points24,
                 payout_instructions,
-                MIN(timestamp) as joinDate,
+                first_seen as joinDate,
                 p2_singleton_puzzle_hash,
 				COUNT(DISTINCT harvester),
-                SUM(case when strftime('%s', 'now','-1 day')<timestamp and source='i' then 1 else 0 end) AS invalid_partials
+                SUM(case when source='i' then 1 else 0 end) AS invalid_partials
 				FROM farmer
-                JOIN (SELECT launcher_id,harvester,difficulty,timestamp,'p' as source FROM partial
-                UNION SELECT launcher_id,harvester,difficulty,timestamp,'i' as source FROM invalid_partial) p USING(launcher_id)
+                JOIN (SELECT launcher_id,harvester,difficulty,timestamp,'p' as source FROM partial WHERE timestamp > strftime('%s', 'now','-1 day')
+                UNION SELECT launcher_id,harvester,difficulty,timestamp,'i' as source FROM invalid_partial WHERE timestamp > strftime('%s', 'now','-1 day')) p USING(launcher_id)
                 WHERE is_pool_member=1
                 GROUP BY launcher_id''',
             (),
@@ -216,9 +220,9 @@ class SqlitePoolStore(AbstractPoolStore):
 
     async def get_farmer_points_and_payout_instructions(self) -> List[Tuple[uint64, bytes, uint64]]:
         cursor = await self.connection.execute(f"""
-            SELECT points, payout_instructions,MIN(timestamp) as joinDate,
+            SELECT points, payout_instructions,first_seen as joinDate,
             COALESCE(SUM(case when strftime('%s', 'now','-1 day')<timestamp then partial.difficulty else 0 end), 0) AS points24
-            FROM farmer LEFT OUTER JOIN partial USING(launcher_id) WHERE farmer.is_pool_member=1 GROUP BY launcher_id having points>0
+            FROM farmer LEFT OUTER JOIN partial USING(launcher_id) WHERE farmer.is_pool_member=1 GROUP BY launcher_id having points24>0
             """)
         rows = await cursor.fetchall()
         await cursor.close()
