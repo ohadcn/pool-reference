@@ -48,7 +48,11 @@ class SqlitePoolStore(AbstractPoolStore):
         )
 
         await self.connection.execute(
-            "CREATE TABLE IF NOT EXISTS partial(launcher_id text, timestamp bigint, difficulty bigint)"
+            "CREATE TABLE IF NOT EXISTS partial(launcher_id text, timestamp bigint, difficulty bigint, harvester text)"
+        )
+
+        await self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS invalid_partial(launcher_id text, timestamp bigint, difficulty bigint, harvester text, reson    TEXT)"
         )
 
         await self.connection.execute("CREATE INDEX IF NOT EXISTS scan_ph on farmer(p2_singleton_puzzle_hash)")

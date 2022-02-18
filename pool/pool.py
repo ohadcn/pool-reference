@@ -6,6 +6,7 @@ import traceback
 from asyncio import Task
 from math import floor
 from typing import Dict, Optional, Set, List, Tuple, Callable
+from datetime import datetime
 
 from blspy import AugSchemeMPL, G1Element
 from chia.consensus.block_rewards import calculate_pool_reward
@@ -671,6 +672,7 @@ class Pool:
                 difficulty,
                 puzzle_hash,
                 True,
+                datetime.now().timestamp(),
             )
             self.scan_p2_singleton_puzzle_hashes.add(p2_singleton_puzzle_hash)
             await self.store.add_farmer_record(farmer_record, metadata)
