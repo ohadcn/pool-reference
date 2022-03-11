@@ -196,7 +196,7 @@ class Pool:
             self.config["self_hostname"], uint16(self.wallet_rpc_port), DEFAULT_ROOT_PATH, self.config
         )
         self.blockchain_state = await self.node_rpc_client.get_blockchain_state()
-        res = await self.wallet_rpc_client.log_in_and_skip(fingerprint=self.wallet_fingerprint)
+        res = await self.wallet_rpc_client.log_in(fingerprint=self.wallet_fingerprint)
         if not res["success"]:
             raise ValueError(f"Error logging in: {res['error']}. Make sure your config fingerprint is correct.")
         self.log.info(f"Logging in: {res}")
@@ -454,7 +454,7 @@ class Pool:
         while True:
             try:
                 peak_height = self.blockchain_state["peak"].height
-                await self.wallet_rpc_client.log_in_and_skip(fingerprint=self.wallet_fingerprint)
+                await self.wallet_rpc_client.log_in(fingerprint=self.wallet_fingerprint)
                 if not self.blockchain_state["sync"]["synced"] or not self.wallet_synced:
                     self.log.warning("Waiting for wallet sync")
                     await asyncio.sleep(60)
@@ -712,14 +712,10 @@ class Pool:
                 farmer_dict["authentication_public_key"] = request.payload.authentication_public_key
 
         if request.payload.payout_instructions is not None:
-            is_new_value = (
-                    farmer_record.payout_instructions != request.payload.payout_instructions
-                    and request.payload.payout_instructions is not None
-                    and len(hexstr_to_bytes(request.payload.payout_instructions)) == 32
-            )
-            response_dict["payout_instructions"] = is_new_value
-            if is_new_value:
-                farmer_dict["payout_instructions"] = request.payload.payout_instructions
+            new_ph: Optional[str] = await self.validate_payout_instructions(request.payload.payout_instructions)
+            response_dict["payout_instructions"] = new_ph
+            if new_ph:
+                farmer_dict["payout_instructions"] = new_ph
 
         if request.payload.suggested_difficulty is not None:
             is_new_value = (
