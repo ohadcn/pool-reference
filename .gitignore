@@ -8,4 +8,6 @@ __pycache__
 *.sqlite-*
 logs
 *.pem
-
+pooldb
+pooldb.*
+*.pyc
