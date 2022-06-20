@@ -5,7 +5,7 @@ from blspy import G2Element
 from chia.consensus.coinbase import pool_parent_id
 from chia.pools.pool_puzzles import (
     create_absorb_spend,
-    solution_to_extra_data,
+    solution_to_pool_state,
     get_most_recent_singleton_coin_from_coin_spend,
     pool_state_to_inner_puzzle,
     create_full_puzzle,
@@ -14,6 +14,8 @@ from chia.pools.pool_puzzles import (
 from chia.pools.pool_wallet import PoolSingletonState
 from chia.pools.pool_wallet_info import PoolState
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
+from chia.rpc.wallet_rpc_client import WalletRpcClient
+from chia.types.announcement import Announcement
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program, SerializedProgram
 from chia.types.blockchain_format.sized_bytes import bytes32
@@ -21,6 +23,8 @@ from chia.types.coin_record import CoinRecord
 from chia.types.coin_spend import CoinSpend
 from chia.types.spend_bundle import SpendBundle
 from chia.util.ints import uint32, uint64
+from chia.wallet.transaction_record import TransactionRecord
+
 
 from .record import FarmerRecord
 
@@ -67,7 +71,7 @@ async def get_singleton_state(
 
             last_spend: Optional[CoinSpend] = await get_coin_spend(node_rpc_client, launcher_coin)
             delay_time, delay_puzzle_hash = get_delayed_puz_info_from_launcher_spend(last_spend)
-            saved_state = solution_to_extra_data(last_spend)
+            saved_state = solution_to_pool_state(last_spend)
             assert last_spend is not None and saved_state is not None
         else:
             last_spend = farmer_record.singleton_tip
@@ -107,7 +111,7 @@ async def get_singleton_state(
             last_spend: Optional[CoinSpend] = await get_coin_spend(node_rpc_client, next_coin_record)
             assert last_spend is not None
 
-            pool_state: Optional[PoolState] = solution_to_extra_data(last_spend)
+            pool_state: Optional[PoolState] = solution_to_pool_state(last_spend)
 
             if pool_state is not None:
                 last_not_none_state = pool_state
@@ -141,6 +145,9 @@ async def create_absorb_transaction(
     peak_height: uint32,
     reward_coin_records: List[CoinRecord],
     genesis_challenge: bytes32,
+    fee_amount: Optional[uint64] = None,
+    wallet_rpc_client: Optional[WalletRpcClient] = None,
+    fee_target_puzzle_hash: Optional[bytes32] = None,
 ) -> Optional[SpendBundle]:
     singleton_state_tuple: Optional[Tuple[CoinSpend, PoolState, PoolState]] = await get_singleton_state(
         node_rpc_client, farmer_record.launcher_id, farmer_record, peak_height, 0, genesis_challenge
@@ -160,6 +167,7 @@ async def create_absorb_transaction(
         farmer_record.launcher_id
     )
     assert launcher_coin_record is not None
+    coin_announcements: List[Announcement] = []
 
     all_spends: List[CoinSpend] = []
     for reward_coin_record in reward_coin_records:
@@ -177,15 +185,27 @@ async def create_absorb_transaction(
             farmer_record.delay_time,
             farmer_record.delay_puzzle_hash,
         )
+        if fee_amount > 0:
+            coin_announcements.append(Announcement(reward_coin_record.coin.name(), b"$"))
         last_spend = absorb_spend[0]
         all_spends += absorb_spend
         # TODO(pool): handle the case where the cost exceeds the size of the block
-        # TODO(pool): If you want to add a fee, you should do the following:
-        #  - only absorb one reward at a time
-        #  - spend the coin that you are receiving in the same spend bundle that it is created
-        #  - create an output with slightly less XCH, to yourself. for example, 1.7499 XCH
-        #  - The remaining value will automatically be used as a fee
+
+    if len(coin_announcements) > 0:
+        # address can be anything
+        signed_transaction: TransactionRecord = await wallet_rpc_client.create_signed_transaction(
+            additions=[{"amount": uint64(1), "puzzle_hash": fee_target_puzzle_hash}],
+            fee=uint64(fee_amount * len(coin_announcements)),
+            coin_announcements=coin_announcements,
+        )
+        fee_spend_bundle: Optional[SpendBundle] = signed_transaction.spend_bundle
+    else:
+        fee_spend_bundle = None
 
     if len(all_spends) == 0:
         return None
-    return SpendBundle(all_spends, G2Element())
+    spend_bundle: SpendBundle = SpendBundle(all_spends, G2Element())
+    if fee_spend_bundle is not None:
+        spend_bundle = SpendBundle.aggregate([spend_bundle, fee_spend_bundle])
+
+    return spend_bundle

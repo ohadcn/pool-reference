@@ -80,11 +80,11 @@ class PoolServer:
         await self.pool.stop()
 
     def wrap_http_handler(self, f) -> Callable:
-        async def inner(request) -> aiohttp.web.Response:
+        async def inner(request) -> web.Response:
             try:
                 res_object = await f(request)
                 if res_object is None:
-                    res_object = {}
+                    res_object = web.Response()
             except Exception as e:
                 tb = traceback.format_exc()
                 self.log.warning(f"Error while handling message: {tb}")
@@ -176,7 +176,8 @@ class PoolServer:
             return authentication_token_error
 
         post_farmer_response = await self.pool.add_farmer(
-            post_farmer_request, self.post_metadata_from_request(request_obj))
+            post_farmer_request, self.post_metadata_from_request(request_obj)
+        )
 
         self.pool.log.info(
             f"post_farmer response {post_farmer_response}, "
@@ -197,8 +198,9 @@ class PoolServer:
             return authentication_token_error
 
         # Process the request
-        put_farmer_response = await self.pool.update_farmer(put_farmer_request,
-                                                            self.post_metadata_from_request(request_obj))
+        put_farmer_response = await self.pool.update_farmer(
+            put_farmer_request, self.post_metadata_from_request(request_obj)
+        )
 
         self.pool.log.info(
             f"put_farmer response {put_farmer_response}, "
